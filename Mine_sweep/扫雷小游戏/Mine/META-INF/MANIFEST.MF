@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Main-Class: Mine
+Created-By: 14.0.2 (Oracle Corporation)
+

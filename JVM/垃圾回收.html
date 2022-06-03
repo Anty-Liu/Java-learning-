@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+垃圾回收 
+1.如何判断一个对象可以回收
+引用计数法：
+只要一个对象被其他变量所引用一次，那么就将其计数加一处理，如果某一个变量不再引用了，就会进行减一处理
+当计数值变为0的时候，就说明它不再被引用了，那么它就是可以回收的对象。
+弊端：两个对象中的变量互相引用，但是却没有其他对象对两个进行引用，导致计数值一直为1。
+计数值不为0，不会进行回收，但是却是需要回收的对象。
+
+可达性分析算法：
+首先要确定一系列分对象：肯定不能当成垃圾回收的对象
+在垃圾回收之前对堆内的所有对象进行一个扫描，看是否被分对象所直接或者间接引用。
+如果是，那么这个对象不能被回收，否则就可以回收。
+
+java虚拟机中的垃圾回收采用可达性分析来探索所有存活的对象
+扫描堆中的对象，看是否能够沿着GC root对象为起点的引用链找到该对象
+找不到，表示可以回收。
+
+哪些对象可以作为GC root对象呢？
+eclipse提供的工具Memory Analyzer。
+System Class系统核心类
+Native Stack操作系统执行时引用的Java对象
+Busy Monitor加锁的对象
+Thread活动线程
+局部变量引用的对象
+
+2.引用
+（1）强引用：
+只有所有的GC Root对象都不通过强引用该对象，该对象才会被回收
+（2）软引用
+仅有软引用该对象时，在垃圾回收之后，内存荏苒不足时回再次发出垃圾胡死后，回收软引用对象。
+可以配合队列来释放软引用自身。
+参数设置：-Xmx20m -XX:+PrintGCDetails -verbose:gc
+（3）弱引用
+仅有弱引用该对象时，在垃圾回收时无论内存是否充足，都会回收弱引用对象。
+可以配合队列来释放弱引用本身。
+（4）虚引用
+必须配合队列使用，主要配合bytebuffer使用，被引用对象回收回收，会将虚引用入队，由reference Handler线程调用虚引用相关方法释放直接内存。
+（5）终结器引用
+软引用
+无需手动编码，但其内部配合队列使用，在回收垃圾时，终结器引用入列（被用于对象暂时没有被回收），再由finalizer线程通过终结器引用找到被用于的对象并调用它的finalize方法，第二次GC时才会回收被引用对象。
+list->new SoftReference()->byte[]软引用对象。
+通过引用队列实现软引用的清除：（queue）ReferenceQueue,配合SoftReference(new byte[],软引用队列对象)
+从队列中获取软引用无用的对象，如何将其移除
+Reference <? extends byte[]> poll=queue.pool()软引用对象
+
+弱引用
+list->new SoftReference()->byte[]弱引用对象。
+只有在进行full GC时弱引用对象才会被回收。
+
+垃圾回收算法：
+1.标记清除 marksweep：
+第一个阶段：先进行标记，遍历队列看那个对象是无用且没有被GC Root所引用的垃圾对象
+第二个阶段：清除这些垃圾对象，释放其队列空间。
+优点：速度快
+缺点：会产生内存碎片（空间不连续）
+
+2.标记整理mark compact
+与标记清除在第一阶段相同
+第二阶段：避免内存碎片问题，将可用空间向前移动，是内存空间更加紧凑
+优点：减少了内存碎片的产生
+缺点：由于整理牵扯到对象的移动，速度比较慢
+
+3.复制算法copy
+将内存区域划分成大小相等的两块区域，from区和to区（空的）
+首先标记垃圾对象，将from区中存活的对象复制to区中，复制过程中完成碎片的整理，然后交换from和to的位置
+优点：没有内存碎片的产生
+缺点：会占用双倍的内存空间
+在JVM中根据不同的情况使用三种算法
+
+分代回收
+将堆内存划分为两个区域：新生代和老年代
+新生代（伊甸园、幸存区from、幸存区to）：存放用完就要丢弃的对象
+老年代:存放长时间使用的对象
+针对不同的区域采用不同的垃圾回收算法
+
+新生对象存储在伊甸园中，当伊甸园中空间不够时就会出发一次垃圾回收Minor GC
+Minor GC会引发stop the world，表示发生垃圾回收的时候必须暂停其他的用户线程，当垃圾回收完用户线程才能够继续进行。
+采用复制算法将标记的对象复制到幸存区to，寿命数值加一,然后幸存区to和幸存区from交换位置。
+当再次伊甸园中内存不够时再次进行垃圾回收，这时要将幸存区中的对象也进行检查，如果是存活对象放入幸存区，寿命数加一，否则就释放内存。然后再交换幸存区to和from的位置。
+当幸存区对象寿命数值超过阈值15时，就会被存入老年代。
+当老年代空间不够时，会先尝试触发Minor GC，如果这时空间还是不够，就会触发一次full GC将新生代老年代中的无用对象做一遍清除，STW时间更长。
+新生代用复制算法，老年代用标记清除和标记整理算法
+
+相关VM参数
+堆初始大小：-Xms
+堆最大大小：-Xmx 或 -XX:MaxHeapSize=size
+新生代大小：-Xmn 或 (-XX:NewSize=size+-XX:MaxNewSize=size)
+幸存区比例（动态）：-XX:InitialSurvivorRatio=ratio和-XX:+UseAdaptiveSizePolicy
+幸存区比例： -XX:SurvivorRatio=ratio 默认值是8
+晋升阈值：-XX:MaxTenuringThreshold=thhreshold
+晋升详情：-XX:+PrintTenuringDistribution
+GC详情：-XX:+PrintGCDetails -verbose:gc
+fullGC前MinorGC:-XX:_ScavengeBeforeFullGc
+一个线程内存不够不会影响主线程运行
+
+垃圾回收器
+1.串行
+单线程
+堆内存较小，适合个人电脑
+2.吞吐量优先
+多线程
+堆内存较大，多核CPU
+让单位时间内SWT的时间最短
+3.响应时间优先
+多线程
+堆内存较大，多核CPU
+尽可能让单次SWT时间最短
+
+串行垃圾回收器
+-XX:+UseSerialGC=Serial(新生代：复制算法）+SerialOld（老年代：标记清除和整理算法）
+要在安全点暂停，然后进行垃圾回收工作，因为垃圾回收可能造成对象地址改变。
+单线程，只有一个垃圾回收线程再运行，所以其他线程要等这个线程运行完成之后在继续执行。
+
+吞吐量优先
+-XX：+UseParallelGC （并行：垃圾回收器线程在运行的同时其他用户线程要先停止执行）~ -XX:+UseParallelOldGC
+-XX:+UseAdaptiveSizePolicy //采用自适应调整新生代大小模式
+-XX:GCTimeRatio=ratio //调整吞吐量的目标，垃圾回收时间跟总时间的占比
+-XX:MaxGCPauseMillis=ms //最大暂停毫秒数
+吞吐量变大，那么堆栈大小变大，那么这时暂停毫秒数就会变大，两者相反
+-XX:ParallelGCThreads=n //控制运行时线程数
+与串行回收器一样都会产生内存碎片
+垃圾回收线程数量跟CPU数量一致（再不超过一定的数值时）
+
+
+响应时间优先
+-XX：+useConcMarkSweepGC（并发：垃圾回收器线程在运行的同时其他用户线程也能循行，使用标记清除算法，（工作在老年代）） ~-XX:_UseParMewGC（工作在新生代） ~ SerialOld（工作在老年代，串行回收器）
+-XX:ParallelGCThreads=n（并行GC线程数，跟CPU数目一致，默认是4） ~ -XX:ConGCThreads=threads（并行线程数，一般设置为并行线程数的1/4）
+-XX:CMSInitiatingOccupancyFraction=percent //设置CMS垃圾回收执行的时机，表示老年代内存达到percent时就触发GC，给浮动垃圾预留空间
+-XX:+CMSScavengeBeforeRemark //新生代对象引用老年代对象，在重新标记之前堆新生代做一次垃圾回收+表示打开-表示禁用
+初始标记会执行STW，并发线程数
+并发标记时不会执行STW，用户线程可并发执行
+并发标记结束又会在安全点执行一次重新标记，这时也会执行STW
+之后再进行并发清理，与此同时用户线程可以继续执行。
+响应时间短，占用了整个CPU的一部分，对于吞吐量造成影响
+浮动垃圾：在执行垃圾回收过程中产生的新垃圾。
+CMS有一个特点：由于使用的时标记清除算法，可能产生比较多的内存碎片，在分配对象时造成Minor GC不足，如果老年代内存也不足，造成并发失败，-XX：+useConcMarkSweepGC回收器工作失败退化为SerialOld做一次单线程串行的垃圾回收，对垃圾对象进行整理，整理完了碎片减少了才能继续工作。
+那么此时并行失败就会造成垃圾回收时间一下子增大，本来是响应时间优先变成了响应时间很长，给用户造成不好的体验。
+</body>
+</html>
